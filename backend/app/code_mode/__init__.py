@@ -5,6 +5,11 @@ from .transplant_plan import (
     TransplantPlan,
     TransplantPlanBuilder,
 )
+from .pipeline import (
+    CodeModeExecutionResult,
+    CodeModePlanResult,
+    CodeModePipeline,
+)
 
 __all__ = [
     "BaseSelection",
@@ -12,4 +17,7 @@ __all__ = [
     "TransplantItem",
     "TransplantPlan",
     "TransplantPlanBuilder",
+    "CodeModePipeline",
+    "CodeModePlanResult",
+    "CodeModeExecutionResult",
 ]

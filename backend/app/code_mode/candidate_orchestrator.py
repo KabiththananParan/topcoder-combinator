@@ -178,7 +178,6 @@ class CandidateOrchestrator:
 
                     continue
 
-                # Verification failed.
                 try:
                     rolled_back = self.rollback_controller.rollback(
                         execution,
@@ -194,14 +193,12 @@ class CandidateOrchestrator:
                         )
                     )
 
-                    errors.extend(verification.errors)
-
-                except TransplantRollbackError as exc:
                     errors.append(
-                        f"Rollback failed for "
-                        f"{item.requirement_id}: {exc}"
+                        f"Verification failed for requirement "
+                        f"{item.requirement_id}; transplant was rolled back."
                     )
 
+                except TransplantRollbackError as exc:
                     results.append(
                         TransplantVerificationResult(
                             requirement_id=item.requirement_id,
@@ -209,6 +206,11 @@ class CandidateOrchestrator:
                             verification=verification,
                             final_status="rollback_failed",
                         )
+                    )
+
+                    errors.append(
+                        f"Verification failed for requirement "
+                        f"{item.requirement_id}; rollback failed: {exc}"
                     )
 
         has_rollback_failure = any(

@@ -2,7 +2,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.decisions.models import Decision, DecisionSet
+from app.matrix.models import RequirementMatrix
+from app.profiling.models import SubmissionProfile
 from app.provenance.models import ProvenanceLedger
+
 from .models import FileTransplant
 
 
@@ -59,7 +62,10 @@ class TransplantPlan:
         return {
             "challengeId": self.challenge_id,
             "baseSubmissionId": self.base_submission_id,
-            "items": [item.to_dict() for item in self.items],
+            "items": [
+                item.to_dict()
+                for item in self.items
+            ],
             "risks": list(self.risks),
         }
 
@@ -69,6 +75,10 @@ class TransplantPlanBuilder:
     Converts approved Copilot decisions into an explicit Code Mode plan.
 
     This class does not modify files.
+
+    File mappings are derived only from:
+    - evidence attached to the selected requirement/submission
+    - files that actually exist in the selected submission profile
     """
 
     def build(
@@ -77,6 +87,8 @@ class TransplantPlanBuilder:
         base_submission_id: str,
         decisions: DecisionSet,
         submission_ids: list[str],
+        matrix: RequirementMatrix | None = None,
+        profiles: dict[str, SubmissionProfile] | None = None,
         provenance: ProvenanceLedger | None = None,
     ) -> TransplantPlan:
 
@@ -96,6 +108,8 @@ class TransplantPlanBuilder:
                 decision=decision,
                 base_submission_id=base_submission_id,
                 valid_submission_ids=valid_submission_ids,
+                matrix=matrix,
+                profiles=profiles,
                 provenance=provenance,
             )
 
@@ -104,6 +118,14 @@ class TransplantPlanBuilder:
             if item.action in {"blocked", "manual_review"}:
                 risks.append(
                     f"{item.action}:{item.requirement_id}"
+                )
+
+            if (
+                item.action == "transplant"
+                and not item.file_transplants
+            ):
+                risks.append(
+                    f"no_file_mapping:{item.requirement_id}"
                 )
 
         return TransplantPlan(
@@ -118,6 +140,8 @@ class TransplantPlanBuilder:
         decision: Decision,
         base_submission_id: str,
         valid_submission_ids: set[str],
+        matrix: RequirementMatrix,
+        profiles: dict[str, SubmissionProfile],
         provenance: ProvenanceLedger | None,
     ) -> TransplantItem:
 
@@ -157,6 +181,16 @@ class TransplantPlanBuilder:
                     evidence_refs=evidence_refs,
                 )
 
+            file_transplants = []
+
+            if matrix is not None and profiles is not None:
+                file_transplants = self._build_file_transplants(
+                    requirement_id,
+                    source_submission_id,
+                    matrix,
+                    profiles,
+                )
+
             return TransplantItem(
                 requirement_id=decision.requirement_id,
                 requirement_title=decision.requirement_title,
@@ -168,6 +202,7 @@ class TransplantPlanBuilder:
                     "for this requirement."
                 ),
                 evidence_refs=evidence_refs,
+                file_transplants=file_transplants,
             )
 
         if decision.state in {"rejected", "blocked"}:
@@ -237,6 +272,16 @@ class TransplantPlanBuilder:
                     evidence_refs=evidence_refs,
                 )
 
+            file_transplants = []
+
+            if matrix is not None and profiles is not None:
+                file_transplants = self._build_file_transplants(
+                    decision.requirement_id,
+                    selected,
+                    matrix,
+                    profiles,
+                )
+
             return TransplantItem(
                 requirement_id=decision.requirement_id,
                 requirement_title=decision.requirement_title,
@@ -248,6 +293,7 @@ class TransplantPlanBuilder:
                     "for this requirement."
                 ),
                 evidence_refs=evidence_refs,
+                file_transplants=file_transplants,
             )
 
         raise ValueError(
@@ -255,10 +301,72 @@ class TransplantPlanBuilder:
         )
 
     @staticmethod
+    def _build_file_transplants(
+        requirement_id: str,
+        source_submission_id: str,
+        matrix: RequirementMatrix,
+        profiles: dict[str, SubmissionProfile],
+    ) -> list[FileTransplant]:
+
+        if source_submission_id not in profiles:
+            raise ValueError(
+                f"Profile does not exist for submission: "
+                f"{source_submission_id}"
+            )
+
+        source_profile = profiles[source_submission_id]
+
+        entries = matrix.for_requirement(
+            requirement_id
+        )
+
+        evidence_paths: list[str] = []
+
+        for entry in entries:
+            if entry.submission_id != source_submission_id:
+                continue
+
+            for evidence in entry.assessment.evidence:
+                path = evidence.get("path")
+
+                if (
+                    isinstance(path, str)
+                    and path
+                    and path not in evidence_paths
+                ):
+                    evidence_paths.append(path)
+
+        available_files = set(
+            source_profile.repository_structure.source_files
+            + source_profile.repository_structure.test_files
+        )
+
+        file_transplants: list[FileTransplant] = []
+
+        for path in evidence_paths:
+            if path not in available_files:
+                continue
+
+            file_transplants.append(
+                FileTransplant(
+                    source_path=path,
+                    target_path=path,
+                    reason=(
+                        f"Evidence for requirement "
+                        f"{requirement_id} identifies "
+                        f"'{path}' in the selected submission."
+                    ),
+                )
+            )
+
+        return file_transplants
+
+    @staticmethod
     def _validate_submission(
         submission_id: str,
         valid_submission_ids: set[str],
     ) -> None:
+
         if submission_id not in valid_submission_ids:
             raise ValueError(
                 f"Submission does not belong to challenge: "

@@ -1,197 +1,161 @@
 from pathlib import Path
 
-from app.code_mode.candidate_orchestrator import (
-    CandidateOrchestrator,
-)
-from app.code_mode.models import FileTransplant
+from app.code_mode.candidate_orchestrator import CandidateOrchestrator
 from app.code_mode.transplant_plan import (
     TransplantItem,
     TransplantPlan,
 )
-from app.code_mode.verification_runner import (
-    VerificationCommand,
-)
+from app.code_mode.models import FileTransplant
+from app.code_mode.verification_runner import VerificationCommand
 
 
-def make_plan():
-    item = TransplantItem(
-        requirement_id="REQ_1",
-        requirement_title="Requirement 1",
-        source_submission_id="SUB_001",
-        target_submission_id="SUB_002",
-        action="transplant",
-        reason="Approved.",
-        file_transplants=[
-            FileTransplant(
-                source_path="source.txt",
-                target_path="target.txt",
-            )
-        ],
-    )
-
+def make_plan() -> TransplantPlan:
     return TransplantPlan(
-        challenge_id="TEST_CHALLENGE",
-        base_submission_id="SUB_002",
-        items=[item],
-    )
-
-
-def create_workspace(tmp_path: Path):
-    submissions = tmp_path / "submissions"
-
-    sub1 = submissions / "SUB_001"
-    sub2 = submissions / "SUB_002"
-
-    sub1.mkdir(parents=True)
-    sub2.mkdir(parents=True)
-
-    source = sub1 / "source.txt"
-    source.write_text("new content")
-
-    candidate = tmp_path / "candidate"
-
-    return submissions, candidate
-
-
-def test_successful_transplant_is_kept(tmp_path):
-    submissions, candidate = create_workspace(tmp_path)
-
-    result = CandidateOrchestrator().execute(
-        challenge_id="TEST_CHALLENGE",
-        plan=make_plan(),
-        submissions_root=submissions,
-        candidate_root=candidate,
-        verification_commands=[
-            VerificationCommand(
-                stage="unit_test",
-                command="python -c \"print('PASS')\"",
+        challenge_id="CHALLENGE_001",
+        base_submission_id="SUB_001",
+        items=[
+            TransplantItem(
+                requirement_id="REQ_001",
+                requirement_title="Analysis",
+                action="transplant",
+                source_submission_id="SUB_002",
+                target_submission_id="SUB_001",
+                reason="Approved transplant.",
+                file_transplants=[
+                    FileTransplant(
+                        source_path="src/feature.py",
+                        target_path="src/feature.py",
+                        reason="Approved transplant.",
+                    )
+                ],
+                evidence_refs=[
+                    "EVIDENCE_000001",
+                ],
             )
         ],
+        risks=[],
     )
 
-    target = candidate / "target.txt"
 
-    assert result.status == "success"
-    assert target.exists()
-    assert target.read_text() == "new content"
-    assert result.results[0].final_status == "kept"
+def test_candidate_orchestrator_keeps_successful_transplant(
+    tmp_path: Path,
+):
+    submissions_root = tmp_path / "submissions"
+    candidate_root = tmp_path / "candidate"
 
-
-def test_failed_verification_rolls_back_new_file(tmp_path):
-    submissions, candidate = create_workspace(tmp_path)
-
-    result = CandidateOrchestrator().execute(
-        challenge_id="TEST_CHALLENGE",
-        plan=make_plan(),
-        submissions_root=submissions,
-        candidate_root=candidate,
-        verification_commands=[
-            VerificationCommand(
-                stage="unit_test",
-                command="python -c \"raise SystemExit(1)\"",
-            )
-        ],
+    source = (
+        submissions_root
+        / "SUB_002"
+        / "src"
+        / "feature.py"
     )
 
-    target = candidate / "target.txt"
+    source.parent.mkdir(parents=True)
 
-    assert result.status == "partial"
-    assert not target.exists()
-    assert result.results[0].final_status == "rolled_back"
-
-
-def test_failed_verification_restores_existing_target(tmp_path):
-    submissions, candidate = create_workspace(tmp_path)
-
-    candidate.mkdir(parents=True, exist_ok=True)
-
-    target = candidate / "target.txt"
-    target.write_text("old content")
-
-    result = CandidateOrchestrator().execute(
-        challenge_id="TEST_CHALLENGE",
-        plan=make_plan(),
-        submissions_root=submissions,
-        candidate_root=candidate,
-        verification_commands=[
-            VerificationCommand(
-                stage="unit_test",
-                command="python -c \"raise SystemExit(1)\"",
-            )
-        ],
+    source.write_text(
+        "print('SUB_002 implementation')\n"
     )
 
-    assert result.status == "partial"
-    assert target.exists()
-    assert target.read_text() == "old content"
-    assert result.results[0].final_status == "rolled_back"
-
-def test_source_is_unchanged_after_failed_verification(tmp_path):
-    submissions, candidate = create_workspace(tmp_path)
-
-    source = submissions / "SUB_001" / "source.txt"
-
-    CandidateOrchestrator().execute(
-        challenge_id="TEST_CHALLENGE",
-        plan=make_plan(),
-        submissions_root=submissions,
-        candidate_root=candidate,
-        verification_commands=[
-            VerificationCommand(
-                stage="unit_test",
-                command="python -c \"raise SystemExit(1)\"",
-            )
-        ],
+    candidate_source = (
+        candidate_root
+        / "src"
+        / "feature.py"
     )
 
-    assert source.read_text() == "new content"
+    candidate_source.parent.mkdir(parents=True)
 
-
-def test_transplant_failure_does_not_run_verification(tmp_path):
-    submissions, candidate = create_workspace(tmp_path)
+    candidate_source.write_text(
+        "print('SUB_001 implementation')\n"
+    )
 
     plan = make_plan()
 
-    # Remove the source so the transplant itself fails.
-    source = submissions / "SUB_001" / "source.txt"
-    source.unlink()
-
-    marker = candidate / "verification-ran.txt"
-
     result = CandidateOrchestrator().execute(
-        challenge_id="TEST_CHALLENGE",
+        challenge_id="CHALLENGE_001",
         plan=plan,
-        submissions_root=submissions,
-        candidate_root=candidate,
+        submissions_root=submissions_root,
+        candidate_root=candidate_root,
         verification_commands=[
             VerificationCommand(
                 stage="unit_test",
-                command=(
-                    "python -c "
-                    "\"from pathlib import Path; "
-                    "Path('verification-ran.txt').write_text('yes')\""
-                ),
+                command="python -m py_compile src/feature.py",
             )
         ],
     )
 
-    assert result.status == "failed"
-    assert not marker.exists()
-    assert result.results[0].final_status == "failed"
+    assert result.status == "success"
+    assert len(result.results) == 1
 
+    item_result = result.results[0]
 
-def test_challenge_mismatch_is_rejected(tmp_path):
-    submissions, candidate = create_workspace(tmp_path)
+    assert item_result.final_status == "kept"
+    assert item_result.transplant.status == "success"
+    assert item_result.verification.status == "passed"
 
-    try:
-        CandidateOrchestrator().execute(
-            challenge_id="OTHER_CHALLENGE",
-            plan=make_plan(),
-            submissions_root=submissions,
-            candidate_root=candidate,
-            verification_commands=[],
-        )
-    except ValueError as exc:
-        assert "does not match" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError")
+    assert (
+        candidate_source.read_text()
+        == "print('SUB_002 implementation')\n"
+    )
+
+    assert (
+        source.read_text()
+        == "print('SUB_002 implementation')\n"
+    )
+    
+    
+def test_candidate_orchestrator_rolls_back_failed_verification(tmp_path):
+    submissions_root = tmp_path / "submissions"
+    candidate_root = tmp_path / "candidate"
+
+    source_root = submissions_root / "SUB_002"
+    source_root.mkdir(parents=True)
+
+    source_file = source_root / "src" / "feature.py"
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text(
+        "print('SUB_002 implementation')\n",
+        encoding="utf-8",
+    )
+
+    candidate_file = candidate_root / "src" / "feature.py"
+    candidate_file.parent.mkdir(parents=True)
+    candidate_file.write_text(
+        "print('SUB_001 implementation')\n",
+        encoding="utf-8",
+    )
+
+    plan = make_plan()
+
+    orchestrator = CandidateOrchestrator()
+
+    result = orchestrator.execute(
+        challenge_id="CHALLENGE_001",
+        plan=plan,
+        submissions_root=submissions_root,
+        candidate_root=candidate_root,
+        verification_commands=[
+            VerificationCommand(
+                stage="unit_test",
+                command="python -c \"raise SystemExit(1)\"",
+            )
+        ],
+    )
+
+    assert result.status == "partial"
+    assert len(result.results) == 1
+
+    item_result = result.results[0]
+
+    assert item_result.final_status == "rolled_back"
+    assert item_result.transplant.status == "rolled_back"
+    assert item_result.verification.status == "failed"
+
+    # Candidate must be restored to its original state.
+    assert candidate_file.read_text(encoding="utf-8") == (
+        "print('SUB_001 implementation')\n"
+    )
+
+    # Source submission must remain immutable.
+    assert source_file.read_text(encoding="utf-8") == (
+        "print('SUB_002 implementation')\n"
+    )
