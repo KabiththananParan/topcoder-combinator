@@ -1,8 +1,10 @@
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.ingestion.starter_pack_scanner import StarterPackScanner
+from app.decisions.persistence import DecisionPersistence
 
 router = APIRouter(prefix="/api")
 
@@ -237,6 +239,12 @@ def get_decisions(challenge_id: str):
             detail="Decisions endpoint currently targets code challenges",
         )
 
+    persistence = DecisionPersistence(Path("../workspace").resolve())
+    saved_decisions = persistence.load(challenge_id)
+
+    if saved_decisions is not None:
+        return saved_decisions.to_dict()
+
     from app.ingestion.challenge_context import ChallengeContextLoader
     from app.matrix.requirement_matrix import RequirementMatrixBuilder
     from app.profiling.submission_profiler import SubmissionProfiler
@@ -281,7 +289,156 @@ def get_decisions(challenge_id: str):
         ),
     )
 
+    persistence.save(result.decisions)
+
+    return result.decisions.to_dict()
+
+
+class DecisionUpdateRequest(BaseModel):
+    action: str
+    reason: str = ""
+    alternativeSubmissionId: str | None = None
+    reviewer: str | None = None
+
+
+@router.post("/challenges/{challenge_id}/decisions/{requirement_id}")
+def update_decision(
+    challenge_id: str,
+    requirement_id: str,
+    request: DecisionUpdateRequest,
+):
+    persistence = DecisionPersistence(Path("../workspace").resolve())
+    decisions = persistence.load(challenge_id)
+
+    if decisions is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No decisions found for challenge: {challenge_id}",
+        )
+
+    from app.decisions.decision_engine import DecisionEngine
+
+    engine = DecisionEngine()
+
+    try:
+        if request.action == "accept":
+            updated = engine.accept(
+                decisions,
+                requirement_id,
+                reason=request.reason,
+                reviewer=request.reviewer,
+            )
+        elif request.action == "reject":
+            updated = engine.reject(
+                decisions,
+                requirement_id,
+                reason=request.reason,
+                reviewer=request.reviewer,
+            )
+        elif request.action == "alternative_selected":
+            if not request.alternativeSubmissionId:
+                raise ValueError(
+                    "alternativeSubmissionId is required."
+                )
+            updated = engine.select_alternative(
+                decisions,
+                requirement_id,
+                request.alternativeSubmissionId,
+                reason=request.reason,
+                reviewer=request.reviewer,
+            )
+        elif request.action == "blocked":
+            updated = engine.block(
+                decisions,
+                requirement_id,
+                reason=request.reason,
+                reviewer=request.reviewer,
+            )
+        elif request.action == "manual_review":
+            updated = engine.manual_review(
+                decisions,
+                requirement_id,
+                reason=request.reason,
+                reviewer=request.reviewer,
+            )
+        elif request.action == "unresolved":
+            updated = engine.unresolved(
+                decisions,
+                requirement_id,
+                reason=request.reason,
+                reviewer=request.reviewer,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported decision action: {request.action}"
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    persistence.save(updated)
+    return updated.to_dict()
+
+
+@router.get("/challenges/{challenge_id}/ideation-analysis")
+def get_ideation_analysis(challenge_id: str):
+    starter_pack = Path("../starter-pack").resolve()
+
+    try:
+        inventories = StarterPackScanner(starter_pack).scan()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to scan starter pack: {exc}",
+        ) from exc
+
+    inventory = next(
+        (item for item in inventories if item.challenge_id == challenge_id),
+        None,
+    )
+
+    if inventory is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Challenge not found: {challenge_id}",
+        )
+
+    if inventory.mode != "ideation":
+        raise HTTPException(
+            status_code=400,
+            detail="Ideation analysis is only available for ideation challenges",
+        )
+
+    decision_persistence = DecisionPersistence(
+        Path("../workspace").resolve()
+    )
+    saved_decisions = decision_persistence.load(challenge_id)
+
+    from app.ideation.pipeline import IdeationPipeline
+
+    result = IdeationPipeline().plan(
+        challenge_id=challenge_id,
+        submissions_root=inventory.root_path / "submissions",
+        submission_ids=inventory.submission_ids,
+    )
+
+    decisions = (
+        saved_decisions
+        if saved_decisions is not None
+        else result.decisions
+    )
+
+    if saved_decisions is None:
+        decision_persistence.save(decisions)
+
     return {
         "challengeId": challenge_id,
-        "decisions": result.decisions.decisions,
+        "ideas": [idea.to_dict() for idea in result.ideas],
+        "evaluation": result.evaluation.to_dict(),
+        "recommendations": result.recommendations.to_dict(),
+        "decisions": decision_persistence.load(challenge_id).to_dict(),
+        "verification": result.verification.to_dict(),
+        "synthesizedConcept": result.synthesized_concept.to_dict(),
+        "provenance": result.provenance.to_dict(),
     }
