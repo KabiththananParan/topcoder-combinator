@@ -70,6 +70,8 @@ def test_ideation_analyzer_produces_idea_components_with_evidence():
 
 def test_ideation_pipeline_creates_shared_pending_decisions():
     from app.ideation.pipeline import IdeationPipeline
+    from app.ideation.synthesis import IdeationSynthesizer
+    from app.ideation.verification import IdeationVerifier
 
     pipeline = IdeationPipeline()
 
@@ -137,3 +139,73 @@ def test_ideation_decision_engine_accepts_recommendation():
     assert decision.state == "accepted"
     assert decision.selected_submission_id == decision.recommended_submission_id
     assert decision.evidence_refs
+
+def test_ideation_pipeline_synthesizes_approved_ideas_and_verifies_provenance():
+    from app.decisions.decision_engine import DecisionEngine
+    from app.ideation.pipeline import IdeationPipeline
+    from app.ideation.synthesis import IdeationSynthesizer
+    from app.ideation.verification import IdeationVerifier
+
+    pipeline = IdeationPipeline()
+
+    result = pipeline.plan(
+        challenge_id="AGENTIC_AI_COMMUNITY_ENABLEMENT_SDLC",
+        submissions_root=FIXTURE_ROOT,
+        submission_ids=["SUB_001", "SUB_002", "SUB_003"],
+    )
+
+    engine = DecisionEngine()
+
+    updated_decisions = result.decisions
+
+    for requirement_id in [
+        "Originality",
+        "Feasibility",
+        "Scalability",
+        "Impact Potential",
+        "Alignment with Scope",
+    ]:
+        decision = updated_decisions.for_requirement(requirement_id)
+
+        if decision is not None and decision.recommended_submission_id:
+            updated_decisions = engine.accept(
+                updated_decisions,
+                requirement_id,
+                reason="Copilot approved the recommended source after reviewing the evidence.",
+                reviewer="copilot",
+            )
+
+    synthesized = IdeationSynthesizer().synthesize(
+        challenge_id="AGENTIC_AI_COMMUNITY_ENABLEMENT_SDLC",
+        ideas=result.ideas,
+        decisions=updated_decisions,
+    )
+
+    verification = IdeationVerifier().verify(
+        ideas=result.ideas,
+        evaluation=result.evaluation,
+        decisions=updated_decisions,
+        synthesized_concept=synthesized,
+    )
+
+    assert synthesized.challenge_id == "AGENTIC_AI_COMMUNITY_ENABLEMENT_SDLC"
+    assert synthesized.source_idea_ids
+    assert synthesized.evidence_refs
+    assert synthesized.proposed_agents
+    assert synthesized.workflow
+    assert synthesized.integrations
+
+    assert verification.status == "passed"
+    assert verification.checks["synthesis_is_consistent"]
+    assert verification.checks["synthesis_sources_are_known"]
+    assert verification.checks["synthesis_evidence_present"]
+
+    event_types = [
+        event.event_type
+        for event in result.provenance.events
+    ]
+
+    assert "assessment_created" in event_types
+    assert "recommendation_created" in event_types
+    assert "decision_created" in event_types
+    assert "source_selected" in event_types

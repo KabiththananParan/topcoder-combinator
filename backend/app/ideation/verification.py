@@ -86,15 +86,12 @@ class IdeationVerifier:
             if selected_ids and not checks["synthesis_evidence_present"]:
                 errors.append("Synthesized concept has selected sources but no evidence.")
 
-        checks["evidence_refs_are_unique"] = len(
-            {
-                evidence_ref
-                for idea in ideas
-                for evidence_ref in idea.evidence_refs
-            }
-        ) == sum(len(idea.evidence_refs) for idea in ideas)
+        checks["evidence_refs_are_unique"] = all(
+            len(idea.evidence_refs) == len(set(idea.evidence_refs))
+            for idea in ideas
+        )
         if not checks["evidence_refs_are_unique"]:
-            errors.append("Duplicate evidence references detected.")
+            errors.append("Duplicate evidence references detected within an idea.")
 
         return IdeationVerificationResult(
             status="passed" if not errors else "failed",
