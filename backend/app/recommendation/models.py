@@ -35,6 +35,8 @@ class Recommendation:
 
     unresolved_conflicts: list[str] = field(default_factory=list)
 
+    evidence_refs: list[str] = field(default_factory=list)
+
     evidence_summary: list[str] = field(default_factory=list)
 
     alternatives: list[str] = field(default_factory=list)
@@ -71,6 +73,7 @@ class RecommendationSet:
                     "reasoning": item.reasoning,
                     "compatibilityRisk": item.compatibility_risk,
                     "unresolvedConflicts": item.unresolved_conflicts,
+                    "evidenceRefs": item.evidence_refs,
                     "evidenceSummary": item.evidence_summary,
                     "alternatives": item.alternatives,
                 }

@@ -261,14 +261,11 @@ class DecisionEngine:
         recommendation: Recommendation,
     ) -> list[str]:
         """
-        Preserve evidence references from the recommendation.
-
-        The actual provenance layer will later convert these
-        into richer structured evidence records.
+        Preserve stable evidence IDs from the recommendation.
         """
 
         return list(
-            recommendation.evidence_summary
+            recommendation.evidence_refs
         )
 
     @staticmethod
