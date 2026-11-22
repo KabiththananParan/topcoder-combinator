@@ -78,7 +78,7 @@ def test_candidate_orchestrator_keeps_successful_transplant(
         verification_commands=[
             VerificationCommand(
                 stage="unit_test",
-                command="python -m py_compile src/feature.py",
+                command="python3 -m py_compile src/feature.py",
             )
         ],
     )

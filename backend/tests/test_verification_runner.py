@@ -15,7 +15,7 @@ def test_successful_command(tmp_path: Path):
         [
             VerificationCommand(
                 stage="unit_test",
-                command="python -c \"print('hello')\"",
+                command="python3 -c \"print('hello')\"",
             )
         ],
     )
@@ -39,7 +39,7 @@ def test_failed_command(tmp_path: Path):
         [
             VerificationCommand(
                 stage="unit_test",
-                command="python -c \"raise SystemExit(1)\"",
+                command="python3 -c \"raise SystemExit(1)\"",
             )
         ],
     )
@@ -60,12 +60,12 @@ def test_stops_after_failure(tmp_path: Path):
         [
             VerificationCommand(
                 stage="unit_test",
-                command="python -c \"raise SystemExit(1)\"",
+                command="python3 -c \"raise SystemExit(1)\"",
             ),
             VerificationCommand(
                 stage="build",
                 command=(
-                    "python -c "
+                    "python3 -c "
                     "\"from pathlib import Path; "
                     "Path('marker.txt').write_text('executed')\""
                 ),
@@ -88,7 +88,7 @@ def test_command_runs_inside_candidate(tmp_path: Path):
             VerificationCommand(
                 stage="smoke_test",
                 command=(
-                    "python -c "
+                    "python3 -c "
                     "\"from pathlib import Path; "
                     "print(Path.cwd())\""
                 ),
@@ -145,7 +145,7 @@ def test_timeout_is_reported(tmp_path: Path):
             VerificationCommand(
                 stage="unit_test",
                 command=(
-                    "python -c "
+                    "python3 -c "
                     "\"import time; time.sleep(2)\""
                 ),
                 timeout_seconds=1,
