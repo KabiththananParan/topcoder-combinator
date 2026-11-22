@@ -5,6 +5,7 @@ from app.analysis.models import (
     RequirementAssessment,
 )
 from app.code_mode.pipeline import CodeModePipeline
+from app.code_mode.verification_runner import VerificationCommand
 from app.decisions.decision_engine import DecisionEngine
 from app.matrix.models import (
     MatrixEntry,
@@ -100,6 +101,30 @@ def make_matrix() -> RequirementMatrix:
         compatibility_risk="low",
     )
 
+    submission_2_assessment = RequirementAssessment(
+        requirement_id="REQ_001",
+        submission_id="SUB_002",
+        assessment="partial",
+        evidence=[
+            {
+                "path": "src/analysis.py",
+                "startLine": 10,
+                "endLine": 25,
+                "symbol": "analyze",
+                "matchedTerms": ["analysis"],
+            },
+            {
+                "path": "tests/test_analysis.py",
+                "startLine": 5,
+                "endLine": 15,
+                "symbol": "test_analysis",
+                "matchedTerms": ["analysis"],
+            },
+        ],
+        confidence=0.9,
+        compatibility_risk="low",
+    )
+
     return RequirementMatrix(
         challenge_id="CHALLENGE_001",
         entries=[
@@ -108,6 +133,12 @@ def make_matrix() -> RequirementMatrix:
                 requirement_title="Analysis",
                 submission_id="SUB_001",
                 assessment=assessment,
+            ),
+            MatrixEntry(
+                requirement_id="REQ_001",
+                requirement_title="Analysis",
+                submission_id="SUB_002",
+                assessment=submission_2_assessment,
             ),
         ],
     )
@@ -259,3 +290,146 @@ def test_code_mode_plan_records_approved_transplant():
     assert item.action == "transplant"
     assert item.source_submission_id == "SUB_002"
     assert item.target_submission_id == "SUB_001"
+    assert item.file_transplants
+    assert [
+        transplant.source_path
+        for transplant in item.file_transplants
+    ] == [
+        "src/analysis.py",
+        "tests/test_analysis.py",
+    ]
+    assert [
+        transplant.target_path
+        for transplant in item.file_transplants
+    ] == [
+        "src/analysis.py",
+        "tests/test_analysis.py",
+    ]
+
+def test_code_mode_pipeline_executes_approved_transplant(tmp_path: Path):
+    matrix = make_matrix()
+
+    profiles = {
+        "SUB_001": make_profile("SUB_001"),
+        "SUB_002": make_profile("SUB_002"),
+    }
+
+    recommendations = make_recommendations()
+
+    decisions = DecisionEngine().select_alternative(
+        make_decisions(),
+        "REQ_001",
+        alternative_submission_id="SUB_002",
+        reason="Approved transplant for end-to-end execution.",
+    )
+
+    ledger = ProvenanceLedger(
+        challenge_id="CHALLENGE_001"
+    )
+
+    plan = CodeModePipeline().plan(
+        challenge_id="CHALLENGE_001",
+        matrix=matrix,
+        profiles=profiles,
+        recommendations=recommendations,
+        decisions=decisions,
+        ledger=ledger,
+    )
+
+    submissions_root = tmp_path / "submissions"
+    candidate_root = tmp_path / "candidate"
+
+    source_file = (
+        submissions_root
+        / "SUB_002"
+        / "src"
+        / "analysis.py"
+    )
+    source_file.parent.mkdir(parents=True)
+    source_file.write_text(
+        "def analyze():\n    return 'SUB_002'\n",
+        encoding="utf-8",
+    )
+
+    source_test = (
+        submissions_root
+        / "SUB_002"
+        / "tests"
+        / "test_analysis.py"
+    )
+    source_test.parent.mkdir(parents=True)
+    source_test.write_text(
+        "def test_analysis():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    candidate_file = (
+        candidate_root
+        / "src"
+        / "analysis.py"
+    )
+    candidate_file.parent.mkdir(parents=True)
+    candidate_file.write_text(
+        "def analyze():\n    return 'SUB_001'\n",
+        encoding="utf-8",
+    )
+
+    candidate_test = (
+        candidate_root
+        / "tests"
+        / "test_analysis.py"
+    )
+    candidate_test.parent.mkdir(parents=True)
+    candidate_test.write_text(
+        "def test_analysis():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    result = CodeModePipeline().execute(
+        challenge_id="CHALLENGE_001",
+        plan=plan,
+        submissions_root=submissions_root,
+        candidate_root=candidate_root,
+        verification_commands=[
+            VerificationCommand(
+                stage="unit_test",
+                command="python3 -m py_compile src/analysis.py",
+            )
+        ],
+    )
+
+    assert result.execution.status == "success"
+    assert len(result.execution.results) == 2
+
+    assert all(
+        item_result.final_status == "kept"
+        for item_result in result.execution.results
+    )
+    assert all(
+        item_result.transplant.status == "success"
+        for item_result in result.execution.results
+    )
+    assert all(
+        item_result.verification.status == "passed"
+        for item_result in result.execution.results
+    )
+
+    assert (
+        candidate_file.read_text(encoding="utf-8")
+        == "def analyze():\n    return 'SUB_002'\n"
+    )
+
+    assert (
+        source_file.read_text(encoding="utf-8")
+        == "def analyze():\n    return 'SUB_002'\n"
+    )
+
+    event_types = [
+        event.event_type
+        for event in result.provenance.events
+    ]
+
+    assert "transplant_planned" in event_types
+    assert "transplant_applied" in event_types
+    assert "verification_started" in event_types
+    assert "verification_completed" in event_types
