@@ -289,27 +289,6 @@ npm run dev
 Open the Vite URL and select a challenge. The dashboard exposes evidence,
 requirements or criteria, Copilot decisions, and the Verify panel.
 
-## 3-5 minute hackathon demo
-
-1. Open the dashboard.
-2. Select a Code Mode challenge.
-3. Inspect submission evidence.
-4. Open the requirement matrix.
-5. Show the Copilot recommendation.
-6. Accept or select a decision.
-7. Show the generated candidate or combined solution.
-8. Open Verify and show build/test status.
-9. Inspect provenance and source locations.
-10. Switch to Ideation Mode.
-11. Show the extracted ideas.
-12. Show recommendations for each criterion.
-13. Highlight a tie requiring Copilot selection.
-14. Explain that the system does not silently choose a winner.
-15. Show the unresolved state, synthesis evidence, and provenance in Verify.
-
-Use the Deal Scoping challenge to demonstrate a deterministic Code Mode
-manual-review blocker. Use Community Enablement SDLC to demonstrate Ideation
-ties and the intentionally unresolved synthesis state.
 
 ## Validation status
 
