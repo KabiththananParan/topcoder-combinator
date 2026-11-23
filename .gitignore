@@ -14,6 +14,8 @@ build/
 
 # Generated workspace
 workspace/
+!backend/app/workspace/
+!backend/app/workspace/*.py
 
 # IDE
 .vscode/

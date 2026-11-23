@@ -26,6 +26,9 @@ class IdeationDecisionAdapter:
                     evidence_refs=list(
                         recommendation.evidence_refs
                     ),
+                    alternatives=list(
+                        recommendation.alternatives
+                    ),
                 )
             )
 

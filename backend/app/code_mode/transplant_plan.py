@@ -185,8 +185,8 @@ class TransplantPlanBuilder:
 
             if matrix is not None and profiles is not None:
                 file_transplants = self._build_file_transplants(
-                    requirement_id,
-                    source_submission_id,
+                    decision.requirement_id,
+                    selected,
                     matrix,
                     profiles,
                 )

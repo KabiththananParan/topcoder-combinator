@@ -58,6 +58,7 @@ class DecisionPersistence:
                     "recommendationConfidence"
                 ),
                 evidence_refs=item.get("evidenceRefs", []),
+                alternatives=item.get("alternatives", []),
                 alternative_submission_id=item.get(
                     "alternativeSubmissionId"
                 ),

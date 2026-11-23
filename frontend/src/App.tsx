@@ -42,6 +42,7 @@ function App() {
       recommendationConfidence?: number
       evidenceRefs?: string[]
       alternativeSubmissionId?: string | null
+      alternatives?: string[]
       reviewer?: string | null
     }>
   >([])
@@ -65,6 +66,43 @@ function App() {
   const selected = challenges.find(
     (challenge) => challenge.challengeId === selectedChallenge,
   )
+
+  const updateIdeationDecision = async (
+    requirementId: string,
+    action: string,
+    reason = "",
+    alternativeSubmissionId?: string,
+  ) => {
+    if (!selected) return
+
+    const response = await fetch(
+      `/api/challenges/${selected.challengeId}/decisions/${requirementId}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action,
+          reason,
+          alternativeSubmissionId,
+          reviewer: 'Copilot',
+        }),
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Decision update failed: ${response.status}`)
+    }
+
+    const updated = await response.json()
+
+    setIdeationDecisions((current) =>
+      current.map((decision) =>
+        decision.requirementId === requirementId ? updated : decision,
+      ),
+    )
+  }
 
   useEffect(() => {
     if (!workspaceOpen || !selected) return
@@ -335,101 +373,82 @@ function App() {
           {workspaceTab === 'evidence' && (
             <section className="workspace-content">
               <div className="workspace-card">
-              <div className="workspace-card-header">
-                <div>
-                  <p className="section-label">SOURCE SUBMISSIONS</p>
-                  <h2>Submission evidence</h2>
-                </div>
-                <span className="count-badge">
-                  {selected.submissionIds.length}
-                </span>
-              </div>
-
-              <div className="submission-list">
-                {workspaceLoading && (
-                  <div className="submission-row">
-                    <div>
-                      <strong>Loading evidence...</strong>
-                      <span>Reading submission profiles</span>
-                    </div>
+                <div className="workspace-card-header">
+                  <div>
+                    <p className="section-label">SOURCE SUBMISSIONS</p>
+                    <h2>Submission evidence</h2>
                   </div>
-                )}
+                  <span className="count-badge">
+                    {selected.submissionIds.length}
+                  </span>
+                </div>
 
-                {!workspaceLoading &&
-                  selected.submissionIds.map((submissionId) => {
-                    const profile = profiles[submissionId] as
-                      | Record<string, unknown>
-                      | undefined
+                <div className="submission-list">
+                  {workspaceLoading && (
+                    <div className="submission-row">
+                      <div>
+                        <strong>Loading evidence...</strong>
+                        <span>Reading submission profiles</span>
+                      </div>
+                    </div>
+                  )}
 
-                    return (
-                      <div className="submission-row" key={submissionId}>
-                        <div>
-                          <strong>{submissionId}</strong>
-                          <span>
-                            {selected.mode === 'code'
-                              ? 'Runnable source submission'
-                              : 'Idea source submission'}
-                            {profile &&
-                              ` · ${Object.keys(profile).length} profile fields`}
-                            {profile?.repository_structure != null &&
-                              ` · ${Object.keys(
-                                profile.repository_structure as Record<string, unknown>,
-                              ).length} structure sections`}
+                  {!workspaceLoading &&
+                    selected.submissionIds.map((submissionId) => {
+                      const profile = profiles[submissionId] as
+                        | Record<string, unknown>
+                        | undefined
+
+                      return (
+                        <div className="submission-row" key={submissionId}>
+                          <div>
+                            <strong>{submissionId}</strong>
+                            <span>
+                              {selected.mode === 'code'
+                                ? 'Runnable source submission'
+                                : 'Idea source submission'}
+                              {profile &&
+                                ` · ${Object.keys(profile).length} profile fields`}
+                              {profile?.repository_structure != null &&
+                                ` · ${Object.keys(
+                                  profile.repository_structure as Record<string, unknown>,
+                                ).length} structure sections`}
+                            </span>
+                          </div>
+                          <span className="review-badge">
+                            {profile ? 'Evidence ready' : 'Review'}
                           </span>
                         </div>
-                        <span className="review-badge">
-                          {profile ? 'Evidence ready' : 'Review'}
-                        </span>
-                      </div>
-                    )
-                  })}
-              </div>
-            </div>
-
-            <div className="workspace-card">
-              <div className="workspace-card-header">
-                <div>
-                  <p className="section-label">COPILOT</p>
-                  <h2>Decision workspace</h2>
+                      )
+                    })}
                 </div>
               </div>
+            </section>
+          )}
 
-              <div className="copilot-placeholder">
-                <div className="copilot-icon">AI</div>
-                <h3>Evidence-driven decisions</h3>
-                <p>
-                  {selected.mode === 'code'
-                    ? `${decisions.length} Copilot decisions loaded from the workspace.`
-                    : 'Ideation decisions will be shown here.'}
-                </p>
-                {selected.mode === 'code' && decisions.length > 0 ? (
-                  <div className="decision-summary">
-                    {decisions.slice(0, 3).map((decision, index) => (
-                      <div className="decision-item" key={index}>
-                        <strong>
-                          {String(
-                            decision.requirementTitle ??
-                              decision.requirementId ??
-                              `Decision ${index + 1}`,
-                          )}
-                        </strong>
-                        <span>
-                          {String(decision.state ?? 'pending')}
-                          {decision.recommendedSubmissionId
-                            ? ` · ${String(decision.recommendedSubmissionId)}`
-                            : ''}
-                          {decision.recommendationConfidence != null
-                            ? ` · ${(Number(decision.recommendationConfidence) * 100).toFixed(0)}% confidence`
-                            : ''}
-                        </span>
-                      </div>
-                    ))}
+          {workspaceTab === 'copilot' && (
+            <section className="workspace-content">
+              <div className="workspace-card">
+                <div className="workspace-card-header">
+                  <div>
+                    <p className="section-label">COPILOT</p>
+                    <h2>Decision workspace</h2>
                   </div>
-                ) : selected.mode === 'ideation' && ideationDecisions.length > 0 ? (
-                  <div className="decision-summary">
-                    {ideationDecisions.map((decision, index) => (
-                      <div className="decision-item" key={decision.requirementId ?? index}>
-                        <div>
+                </div>
+
+                <div className="copilot-placeholder">
+                  <div className="copilot-icon">AI</div>
+                  <h3>Evidence-driven decisions</h3>
+                  <p>
+                    {selected.mode === 'code'
+                      ? `${decisions.length} Copilot decisions loaded from the workspace.`
+                      : 'Ideation decisions will be shown here.'}
+                  </p>
+
+                  {selected.mode === 'code' && decisions.length > 0 ? (
+                    <div className="decision-summary">
+                      {decisions.slice(0, 3).map((decision, index) => (
+                        <div className="decision-item" key={index}>
                           <strong>
                             {String(
                               decision.requirementTitle ??
@@ -440,25 +459,112 @@ function App() {
                           <span>
                             {String(decision.state ?? 'pending')}
                             {decision.recommendedSubmissionId
-                              ? ` · Recommended: ${String(decision.recommendedSubmissionId)}`
-                              : ' · Copilot selection required'}
+                              ? ` · ${String(decision.recommendedSubmissionId)}`
+                              : ''}
                             {decision.recommendationConfidence != null
                               ? ` · ${(Number(decision.recommendationConfidence) * 100).toFixed(0)}% confidence`
                               : ''}
                           </span>
                         </div>
-                        <span className="review-badge">
-                          {String(decision.state ?? 'pending')}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <button className="primary-button">
-                    Load recommendations
-                  </button>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  ) : selected.mode === 'ideation' &&
+                    ideationDecisions.length > 0 ? (
+                    <div className="decision-summary">
+                      {ideationDecisions.map((decision, index) => {
+                        const decisionId = String(
+                          decision.requirementId ??
+                            decision.requirementTitle ??
+                            '',
+                        )
+
+                        return (
+                          <div
+                            className="decision-item"
+                            key={decisionId || index}
+                          >
+                            <div>
+                              <strong>
+                                {String(
+                                  decision.requirementTitle ??
+                                    decision.requirementId ??
+                                    `Decision ${index + 1}`,
+                                )}
+                              </strong>
+                              <span>
+                                {String(decision.state ?? 'pending')}
+                                {decision.recommendedSubmissionId
+                                  ? ` · Recommended: ${String(decision.recommendedSubmissionId)}`
+                                  : ' · Copilot selection required'}
+                                {decision.recommendationConfidence != null
+                                  ? ` · ${(Number(decision.recommendationConfidence) * 100).toFixed(0)}% confidence`
+                                  : ''}
+                              </span>
+                            </div>
+
+                            <div className="decision-actions">
+                              {decision.recommendedSubmissionId ? (
+                                <>
+                                  <button
+                                    className="secondary-button"
+                                    disabled={decision.state === 'accepted'}
+                                    onClick={() =>
+                                      updateIdeationDecision(
+                                        decisionId,
+                                        'accept',
+                                        'Accepted by Copilot',
+                                      )
+                                    }
+                                  >
+                                    Accept
+                                  </button>
+
+                                  <button
+                                    className="secondary-button"
+                                    disabled={decision.state === 'rejected'}
+                                    onClick={() =>
+                                      updateIdeationDecision(
+                                        decisionId,
+                                        'reject',
+                                        'Rejected by Copilot',
+                                      )
+                                    }
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  className="secondary-button"
+                                  onClick={() =>
+                                    updateIdeationDecision(
+                                      decisionId,
+                                      'alternative_selected',
+                                      'Copilot selected an alternative',
+                                      decision.alternativeSubmissionId ??
+                                        decision.alternatives?.[0] ??
+                                        undefined,
+                                    )
+                                  }
+                                >
+                                  Select alternative
+                                </button>
+                              )}
+
+                              <span className="review-badge">
+                                {String(decision.state ?? 'pending')}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <button className="primary-button">
+                      Load recommendations
+                    </button>
+                  )}
+                </div>
               </div>
             </section>
           )}

@@ -766,3 +766,45 @@
   text-align: left;
   cursor: pointer;
 }
+
+.decision-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  margin-top: 24px;
+}
+
+.decision-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fafbfc;
+  text-align: left;
+}
+
+.decision-item > div {
+  min-width: 0;
+}
+
+.decision-item strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 14px;
+}
+
+.decision-item span {
+  display: block;
+  color: #7b8494;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.decision-item > span {
+  flex-shrink: 0;
+}
+

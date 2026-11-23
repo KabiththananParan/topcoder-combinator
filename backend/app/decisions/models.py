@@ -31,6 +31,8 @@ class Decision:
 
     evidence_refs: list[str] = field(default_factory=list)
 
+    alternatives: list[str] = field(default_factory=list)
+
     alternative_submission_id: str | None = None
 
     reviewer: str | None = None
@@ -46,6 +48,7 @@ class Decision:
             "recommendationScore": self.recommendation_score,
             "recommendationConfidence": self.recommendation_confidence,
             "evidenceRefs": self.evidence_refs,
+            "alternatives": self.alternatives,
             "alternativeSubmissionId": (
                 self.alternative_submission_id
             ),
