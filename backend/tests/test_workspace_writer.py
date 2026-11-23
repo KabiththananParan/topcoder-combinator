@@ -64,3 +64,14 @@ def test_ideation_workspace_is_deterministic_and_source_safe(tmp_path):
 def test_workspace_writer_rejects_path_traversal(tmp_path):
     with pytest.raises(ValueError):
         WorkspaceWriter(tmp_path)._challenge_root("../outside")
+
+
+def test_workspace_writer_rejects_symlinked_source(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    target = tmp_path / "target.txt"
+    target.write_text("outside")
+    (source / "linked.txt").symlink_to(target)
+
+    with pytest.raises(ValueError, match="Symlink source"):
+        WorkspaceWriter._copy_tree(source, tmp_path / "destination")

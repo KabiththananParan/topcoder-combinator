@@ -112,6 +112,53 @@ def test_ideation_pipeline_creates_shared_pending_decisions():
     )
 
 
+def test_ideation_pipeline_reconciles_stale_pending_decisions():
+    from app.ideation.pipeline import IdeationPipeline
+
+    pipeline = IdeationPipeline()
+    initial = pipeline.plan(
+        challenge_id="AGENTIC_AI_COMMUNITY_ENABLEMENT_SDLC",
+        submissions_root=FIXTURE_ROOT,
+        submission_ids=["SUB_001", "SUB_002", "SUB_003"],
+    )
+    stale = initial.decisions.__class__(
+        challenge_id=initial.decisions.challenge_id,
+        decisions=[
+            decision.__class__(
+                requirement_id=decision.requirement_id,
+                requirement_title=decision.requirement_title,
+                state=(
+                    "manual_review"
+                    if decision.requirement_id == "Originality"
+                    else "pending"
+                ),
+                reason=(
+                    "Requires human review because no recommended source was identified."
+                    if decision.requirement_id == "Originality"
+                    else "No suitable evaluated idea is available."
+                ),
+            )
+            for decision in initial.decisions.decisions
+        ],
+    )
+
+    reconciled = pipeline.plan(
+        challenge_id="AGENTIC_AI_COMMUNITY_ENABLEMENT_SDLC",
+        submissions_root=FIXTURE_ROOT,
+        submission_ids=["SUB_001", "SUB_002", "SUB_003"],
+        persisted_decisions=stale,
+    ).decisions
+
+    originality = reconciled.for_requirement("Originality")
+    feasibility = reconciled.for_requirement("Feasibility")
+    assert originality is not None
+    assert originality.recommended_submission_id == "SUB_001"
+    assert feasibility is not None
+    assert feasibility.state == "pending"
+    assert feasibility.recommended_submission_id is None
+    assert feasibility.alternatives
+
+
 def test_ideation_decision_engine_accepts_recommendation():
     from app.decisions.decision_engine import DecisionEngine
     from app.ideation.pipeline import IdeationPipeline

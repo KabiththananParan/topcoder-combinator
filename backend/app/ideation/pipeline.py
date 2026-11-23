@@ -42,6 +42,7 @@ class IdeationPipeline:
         challenge_id: str,
         submissions_root,
         submission_ids: list[str],
+        persisted_decisions: DecisionSet | None = None,
     ) -> IdeationPlanResult:
         ideas: list[IdeaComponent] = []
 
@@ -74,6 +75,11 @@ class IdeationPipeline:
         decisions = self.decision_adapter.create_pending_decisions(
             recommendations
         )
+        if persisted_decisions is not None:
+            decisions = self.decision_adapter.reconcile_persisted_decisions(
+                recommendations,
+                persisted_decisions,
+            )
 
         synthesized_concept = IdeationSynthesizer().synthesize(
             challenge_id=challenge_id,

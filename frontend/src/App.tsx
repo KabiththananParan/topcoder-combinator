@@ -17,6 +17,21 @@ function App() {
   const [profiles, setProfiles] = useState<Record<string, unknown>>({})
   const [workspaceLoading, setWorkspaceLoading] = useState(false)
   const [decisions, setDecisions] = useState<Record<string, unknown>[]>([])
+  const [verificationData, setVerificationData] = useState<{
+    verification?: {
+      status?: string
+      checks?: Record<string, boolean>
+      errors?: string[]
+      reason?: string
+      results?: Array<Record<string, unknown>>
+    }
+    provenance?: { evidence?: unknown[]; events?: unknown[] }
+    contradictions?: { contradictions?: Array<Record<string, unknown>> }
+    candidateStatus?: { status?: string; errors?: string[] }
+    baseSelection?: { status?: string; selectedSubmissionId?: string | null }
+    synthesis?: { sourceIdeaIds?: string[]; evidenceRefs?: string[] }
+    decisions?: { decisions?: Array<{ state?: string }> }
+  } | null>(null)
   const [ideationAnalysis, setIdeationAnalysis] = useState<{
     evaluation?: {
       evaluations?: Array<{
@@ -108,6 +123,17 @@ function App() {
     if (!workspaceOpen || !selected) return
 
     setWorkspaceLoading(true)
+    setVerificationData(null)
+
+    const loadVerification = () =>
+      fetch(`/api/challenges/${selected.challengeId}/verification`)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Verification API error: ${response.status}`)
+          }
+          return response.json()
+        })
+        .then((data) => setVerificationData(data))
 
     Promise.all(
       selected.submissionIds.map(async (submissionId) => {
@@ -135,6 +161,7 @@ function App() {
             .then((data) => {
               setIdeationAnalysis(data)
               setIdeationDecisions(data.decisions?.decisions ?? [])
+              return loadVerification()
             })
         }
 
@@ -148,6 +175,7 @@ function App() {
             })
             .then((data) => {
               setDecisions(data.decisions ?? [])
+              return loadVerification()
             })
         }
       })
@@ -568,8 +596,155 @@ function App() {
               </div>
             </section>
           )}
+
+          {workspaceTab === 'verify' && (
+            <VerificationPanel
+              data={verificationData}
+              decisions={
+                selected.mode === 'ideation'
+                  ? ideationDecisions
+                  : decisions
+              }
+              mode={selected.mode}
+            />
+          )}
+
         </main>
       </div>
+    )
+  }
+
+  function VerificationPanel({
+    data,
+    decisions,
+    mode,
+  }: {
+    data: {
+      verification?: {
+        status?: string
+        checks?: Record<string, boolean>
+        errors?: string[]
+        reason?: string
+        results?: Array<Record<string, unknown>>
+      }
+      provenance?: { evidence?: unknown[]; events?: unknown[] }
+      contradictions?: { contradictions?: Array<Record<string, unknown>> }
+      candidateStatus?: { status?: string; errors?: string[] }
+      baseSelection?: { status?: string; selectedSubmissionId?: string | null }
+      synthesis?: { sourceIdeaIds?: string[]; evidenceRefs?: string[] }
+    } | null
+    decisions: Array<Record<string, unknown> | { state?: string }>
+    mode: 'code' | 'ideation'
+  }) {
+    const pending = decisions.filter((decision) =>
+      ['pending', 'manual_review', 'unresolved', 'blocked'].includes(
+        String(decision.state ?? ''),
+      ),
+    )
+    const artifactStatus = String(data?.verification?.status ?? 'not available')
+    const reviewRequired = pending.length > 0
+    const status = reviewRequired ? 'review_required' : artifactStatus
+    const checks = data?.verification?.checks ?? {}
+    const errors = [
+      ...(data?.verification?.errors ?? []),
+      ...(data?.candidateStatus?.errors ?? []),
+    ]
+    const contradictions = data?.contradictions?.contradictions ?? []
+
+    return (
+      <section className="workspace-content">
+        <div className="workspace-card verification-card">
+          <div className="workspace-card-header">
+            <div>
+              <p className="section-label">VERIFICATION</p>
+              <h2>Candidate and provenance status</h2>
+            </div>
+            <span className={`verification-status ${status}`}>
+              {status.replaceAll('_', ' ')}
+            </span>
+          </div>
+
+          {reviewRequired && (
+            <div className="verification-alert">
+              {pending.length} decision{pending.length === 1 ? '' : 's'} still
+              require Copilot or human review. This workspace is not finalized.
+            </div>
+          )}
+
+          <div className="verification-grid">
+            <div className="verification-section">
+              <strong>Verification checks</strong>
+              {Object.keys(checks).length > 0 ? (
+                Object.entries(checks).map(([name, passed]) => (
+                  <div className="verification-row" key={name}>
+                    <span>{name.replaceAll('_', ' ')}</span>
+                    <span className={passed ? 'check-pass' : 'check-fail'}>
+                      {passed ? 'Passed' : 'Failed'}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="muted-copy">Verification has not run yet.</p>
+              )}
+            </div>
+
+            <div className="verification-section">
+              <strong>Decision state</strong>
+              <div className="verification-row">
+                <span>Unresolved/manual review</span>
+                <span className={reviewRequired ? 'check-fail' : 'check-pass'}>
+                  {pending.length}
+                </span>
+              </div>
+              <div className="verification-row">
+                <span>Candidate status</span>
+                <span>{String(data?.candidateStatus?.status ?? 'n/a')}</span>
+              </div>
+              {mode === 'code' && (
+                <div className="verification-row">
+                  <span>Base selection</span>
+                  <span>{String(data?.baseSelection?.status ?? 'n/a')}</span>
+                </div>
+              )}
+              {mode === 'ideation' && (
+                <div className="verification-row">
+                  <span>Synthesis sources</span>
+                  <span>
+                    {data?.synthesis?.sourceIdeaIds?.length ?? 0} selected
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="verification-section">
+              <strong>Evidence and provenance</strong>
+              <div className="verification-row">
+                <span>Evidence records</span>
+                <span>{data?.provenance?.evidence?.length ?? 0}</span>
+              </div>
+              <div className="verification-row">
+                <span>Provenance events</span>
+                <span>{data?.provenance?.events?.length ?? 0}</span>
+              </div>
+              <div className="verification-row">
+                <span>Contradictions</span>
+                <span className={contradictions.length ? 'check-fail' : 'check-pass'}>
+                  {contradictions.length}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {errors.length > 0 && (
+            <div className="verification-details">
+              <strong>Messages</strong>
+              {errors.map((message, index) => (
+                <p key={`${message}-${index}`}>{message}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
     )
   }
 

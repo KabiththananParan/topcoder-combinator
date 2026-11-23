@@ -505,6 +505,10 @@ class WorkspaceWriter:
     def _copy_tree(source: Path, destination: Path) -> None:
         if not source.is_dir():
             raise ValueError(f"Source directory does not exist: {source}")
+        if source.is_symlink() or any(
+            path.is_symlink() for path in source.rglob("*")
+        ):
+            raise ValueError(f"Symlink source is not allowed: {source}")
         if destination.exists():
             shutil.rmtree(destination)
         shutil.copytree(

@@ -1,4 +1,5 @@
 import shutil
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -6,6 +7,7 @@ from pydantic import BaseModel
 
 from app.ingestion.starter_pack_scanner import StarterPackScanner
 from app.decisions.persistence import DecisionPersistence
+from app.code_mode.safe_workspace import resolve_safe_path
 from app.workspace.writer import WorkspaceWriter
 
 router = APIRouter(prefix="/api")
@@ -298,6 +300,58 @@ def get_decisions(challenge_id: str):
     return result.decisions.to_dict()
 
 
+@router.get("/challenges/{challenge_id}/verification")
+def get_verification(challenge_id: str):
+    """Return the generated verification and trace artifacts for the workspace."""
+    starter_pack = Path("../starter-pack").resolve()
+    inventories = StarterPackScanner(starter_pack).scan()
+    inventory = next(
+        (item for item in inventories if item.challenge_id == challenge_id),
+        None,
+    )
+    if inventory is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Challenge not found: {challenge_id}",
+        )
+
+    if inventory.mode == "ideation":
+        get_ideation_analysis(challenge_id)
+    else:
+        get_decisions(challenge_id)
+
+    workspace = Path("../workspace").resolve() / challenge_id
+
+    def read_artifact(name: str, default: dict) -> dict:
+        path = workspace / name
+        if not path.is_file():
+            return default
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load workspace artifact: {name}",
+            ) from exc
+        return value if isinstance(value, dict) else default
+
+    decisions = read_artifact("decisions.json", {"decisions": []})
+    return {
+        "challengeId": challenge_id,
+        "mode": inventory.mode,
+        "verification": read_artifact("verification.json", {}),
+        "provenance": read_artifact("provenance.json", {}),
+        "contradictions": read_artifact("contradictions.json", {}),
+        "decisions": decisions,
+        "candidateStatus": read_artifact("candidate-status.json", {}),
+        "baseSelection": read_artifact("base-selection.json", {}),
+        "synthesis": read_artifact(
+            "synthesized-concept/concept.json",
+            {},
+        ),
+    }
+
+
 def _write_code_workspace(inventory, decisions, result=None):
     """Materialize code-mode state from the current persisted decisions."""
     from app.ingestion.challenge_context import ChallengeContextLoader
@@ -375,17 +429,24 @@ def _write_code_workspace(inventory, decisions, result=None):
             decisions=decisions,
             ledger=recommendation_result.provenance,
         )
-        candidate_root = (
-            Path("../workspace").resolve()
-            / inventory.challenge_id
-            / ".candidate"
+        workspace_root = Path("../workspace").resolve()
+        candidate_root = resolve_safe_path(
+            workspace_root,
+            f"{inventory.challenge_id}/.candidate",
         )
+        expected_parent = workspace_root / inventory.challenge_id
+        if candidate_root.parent != expected_parent:
+            raise ValueError("Invalid candidate workspace path.")
         if candidate_root.exists():
             shutil.rmtree(candidate_root)
-        shutil.copytree(
-            inventory.root_path / "submissions" / plan.base_selection.selected_submission_id,
-            candidate_root,
-        )
+        source_root = (
+            inventory.root_path
+            / "submissions"
+            / plan.base_selection.selected_submission_id
+        ).resolve()
+        if any(path.is_symlink() for path in source_root.rglob("*")):
+            raise ValueError("Source submission contains a symlink.")
+        shutil.copytree(source_root, candidate_root, symlinks=False)
         verification_config = VerificationConfigLoader().load_from_verification_path(
             inventory.verification_path
         )
@@ -518,6 +579,7 @@ def update_decision(
                 challenge_id=challenge_id,
                 submissions_root=inventory.root_path / "submissions",
                 submission_ids=inventory.submission_ids,
+                persisted_decisions=updated,
             )
             result = result.__class__(
                 challenge_id=result.challenge_id,
@@ -598,16 +660,12 @@ def get_ideation_analysis(challenge_id: str):
         challenge_id=challenge_id,
         submissions_root=inventory.root_path / "submissions",
         submission_ids=inventory.submission_ids,
+        persisted_decisions=saved_decisions,
     )
 
-    decisions = (
-        saved_decisions
-        if saved_decisions is not None
-        else result.decisions
-    )
+    decisions = result.decisions
 
-    if saved_decisions is None:
-        decision_persistence.save(decisions)
+    decision_persistence.save(decisions)
 
     from app.ideation.synthesis import IdeationSynthesizer
     from app.ideation.verification import IdeationVerifier
