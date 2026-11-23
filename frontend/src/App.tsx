@@ -27,6 +27,13 @@ function App() {
     }
     provenance?: { evidence?: unknown[]; events?: unknown[] }
     contradictions?: { contradictions?: Array<Record<string, unknown>> }
+    usage?: {
+      provider?: string
+      model?: string | null
+      calls?: number
+      totalTokens?: number | null
+      approximateCost?: number | null
+    }
     candidateStatus?: { status?: string; errors?: string[] }
     baseSelection?: { status?: string; selectedSubmissionId?: string | null }
     synthesis?: { sourceIdeaIds?: string[]; evidenceRefs?: string[] }
@@ -110,19 +117,94 @@ function App() {
       throw new Error(`Decision update failed: ${response.status}`)
     }
 
-    const updated = await response.json()
+    const updated: { decisions?: Array<typeof ideationDecisions[number]> } =
+      await response.json()
+    const updatedDecision = updated.decisions?.find(
+      (decision) => decision.requirementId === requirementId,
+    )
+    if (!updatedDecision) {
+      throw new Error('Decision update response did not include the decision')
+    }
 
     setIdeationDecisions((current) =>
       current.map((decision) =>
-        decision.requirementId === requirementId ? updated : decision,
+        decision.requirementId === requirementId
+          ? updatedDecision
+          : decision,
       ),
     )
+  }
+
+  const updateCodeDecision = async (
+    requirementId: string,
+    action: string,
+    reason: string,
+    alternativeSubmissionId?: string,
+  ) => {
+    if (!selected) return
+
+    setError(null)
+    try {
+      const response = await fetch(
+        `/api/challenges/${selected.challengeId}/decisions/${requirementId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action,
+            reason,
+            alternativeSubmissionId,
+            reviewer: 'Copilot',
+          }),
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(`Decision update failed: ${response.status}`)
+      }
+
+      const updated: { decisions?: Record<string, unknown>[] } =
+        await response.json()
+      const updatedDecision = updated.decisions?.find(
+        (decision) => decision.requirementId === requirementId,
+      )
+      if (!updatedDecision) {
+        throw new Error(
+          'Decision update response did not include the decision',
+        )
+      }
+      setDecisions((current) =>
+        current.map((decision) =>
+          decision.requirementId === requirementId
+            ? updatedDecision
+            : decision,
+        ),
+      )
+
+      const verificationResponse = await fetch(
+        `/api/challenges/${selected.challengeId}/verification`,
+      )
+      if (!verificationResponse.ok) {
+        throw new Error(
+          `Verification refresh failed: ${verificationResponse.status}`,
+        )
+      }
+      setVerificationData(await verificationResponse.json())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Decision update failed')
+    }
   }
 
   useEffect(() => {
     if (!workspaceOpen || !selected) return
 
     setWorkspaceLoading(true)
+    setProfiles({})
+    setDecisions([])
+    setIdeationAnalysis(null)
+    setIdeationDecisions([])
     setVerificationData(null)
 
     const loadVerification = () =>
@@ -473,28 +555,153 @@ function App() {
                       : 'Ideation decisions will be shown here.'}
                   </p>
 
-                  {selected.mode === 'code' && decisions.length > 0 ? (
+                  {workspaceLoading ? (
+                    <div className="empty-state">
+                      <p>Loading Copilot decisions...</p>
+                    </div>
+                  ) : selected.mode === 'code' && decisions.length > 0 ? (
                     <div className="decision-summary">
-                      {decisions.slice(0, 3).map((decision, index) => (
-                        <div className="decision-item" key={index}>
-                          <strong>
-                            {String(
-                              decision.requirementTitle ??
-                                decision.requirementId ??
-                                `Decision ${index + 1}`,
-                            )}
-                          </strong>
-                          <span>
-                            {String(decision.state ?? 'pending')}
-                            {decision.recommendedSubmissionId
-                              ? ` · ${String(decision.recommendedSubmissionId)}`
-                              : ''}
-                            {decision.recommendationConfidence != null
-                              ? ` · ${(Number(decision.recommendationConfidence) * 100).toFixed(0)}% confidence`
-                              : ''}
-                          </span>
-                        </div>
-                      ))}
+                      {decisions.map((decision, index) => {
+                        const decisionId = String(
+                          decision.requirementId ??
+                            decision.requirementTitle ??
+                            '',
+                        )
+                        const alternatives = Array.isArray(
+                          decision.alternatives,
+                        )
+                          ? decision.alternatives.map(String)
+                          : []
+                        const selectedSource =
+                          decision.selectedSubmissionId ??
+                          decision.alternativeSubmissionId
+
+                        return (
+                          <div
+                            className="decision-item decision-item-interactive"
+                            key={decisionId || index}
+                          >
+                            <div className="decision-copy">
+                              <strong>
+                                {String(
+                                  decision.requirementTitle ??
+                                    decision.requirementId ??
+                                    `Decision ${index + 1}`,
+                                )}
+                              </strong>
+                              <span>
+                                Recommended:{' '}
+                                {String(
+                                  decision.recommendedSubmissionId ?? 'None',
+                                )}
+                                {decision.recommendationConfidence != null
+                                  ? ` · ${(Number(decision.recommendationConfidence) * 100).toFixed(0)}% confidence`
+                                  : ''}
+                              </span>
+                              <span>
+                                State: {String(decision.state ?? 'pending')}
+                                {selectedSource
+                                  ? ` · Selected: ${String(selectedSource)}`
+                                  : ''}
+                              </span>
+                              {decision.reason != null &&
+                                String(decision.reason).length > 0 && (
+                                <span className="decision-reason">
+                                  {String(decision.reason)}
+                                </span>
+                                )}
+                            </div>
+
+                            <div className="decision-actions">
+                              <button
+                                className="secondary-button"
+                                disabled={
+                                  workspaceLoading ||
+                                  !decisionId ||
+                                  decision.state === 'accepted'
+                                }
+                                onClick={() =>
+                                  updateCodeDecision(
+                                    decisionId,
+                                    'accept',
+                                    'Accepted by Copilot',
+                                  )
+                                }
+                              >
+                                Accept
+                              </button>
+                              <button
+                                className="secondary-button"
+                                disabled={
+                                  workspaceLoading ||
+                                  !decisionId ||
+                                  decision.state === 'rejected'
+                                }
+                                onClick={() =>
+                                  updateCodeDecision(
+                                    decisionId,
+                                    'reject',
+                                    'Rejected by Copilot',
+                                  )
+                                }
+                              >
+                                Reject
+                              </button>
+                              {alternatives.map((alternative) => (
+                                <button
+                                  className="secondary-button alternative-button"
+                                  key={alternative}
+                                  disabled={
+                                    workspaceLoading ||
+                                    !decisionId ||
+                                    alternative ===
+                                    decision.recommendedSubmissionId
+                                  }
+                                  onClick={() =>
+                                    updateCodeDecision(
+                                      decisionId,
+                                      'alternative_selected',
+                                      `Copilot selected ${alternative} as an alternative`,
+                                      alternative,
+                                    )
+                                  }
+                                >
+                                  Select {alternative}
+                                </button>
+                              ))}
+                              <button
+                                className="secondary-button muted-action"
+                                disabled={workspaceLoading || !decisionId}
+                                onClick={() =>
+                                  updateCodeDecision(
+                                    decisionId,
+                                    'blocked',
+                                    'Blocked by Copilot pending manual review',
+                                  )
+                                }
+                              >
+                                Block
+                              </button>
+                              <button
+                                className="secondary-button muted-action"
+                                disabled={workspaceLoading || !decisionId}
+                                onClick={() =>
+                                  updateCodeDecision(
+                                    decisionId,
+                                    'manual_review',
+                                    'Requires manual review by Copilot',
+                                  )
+                                }
+                              >
+                                Manual review
+                              </button>
+                              <span className="review-badge">
+                                {String(decision.state ?? 'pending')}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   ) : selected.mode === 'ideation' &&
                     ideationDecisions.length > 0 ? (
@@ -629,6 +836,13 @@ function App() {
       }
       provenance?: { evidence?: unknown[]; events?: unknown[] }
       contradictions?: { contradictions?: Array<Record<string, unknown>> }
+      usage?: {
+        provider?: string
+        model?: string | null
+        calls?: number
+        totalTokens?: number | null
+        approximateCost?: number | null
+      }
       candidateStatus?: { status?: string; errors?: string[] }
       baseSelection?: { status?: string; selectedSubmissionId?: string | null }
       synthesis?: { sourceIdeaIds?: string[]; evidenceRefs?: string[] }
@@ -730,6 +944,31 @@ function App() {
                 <span>Contradictions</span>
                 <span className={contradictions.length ? 'check-fail' : 'check-pass'}>
                   {contradictions.length}
+                </span>
+              </div>
+            </div>
+
+            <div className="verification-section">
+              <strong>AI usage</strong>
+              <div className="verification-row">
+                <span>Provider</span>
+                <span>{data?.usage?.provider ?? 'n/a'}</span>
+              </div>
+              <div className="verification-row">
+                <span>Model</span>
+                <span>{data?.usage?.model ?? 'not configured'}</span>
+              </div>
+              <div className="verification-row">
+                <span>Calls</span>
+                <span>{data?.usage?.calls ?? 0}</span>
+              </div>
+              <div className="verification-row">
+                <span>Tokens / cost</span>
+                <span>
+                  {data?.usage?.totalTokens ?? 'unavailable'} /{' '}
+                  {data?.usage?.approximateCost != null
+                    ? data.usage.approximateCost
+                    : 'unavailable'}
                 </span>
               </div>
             </div>

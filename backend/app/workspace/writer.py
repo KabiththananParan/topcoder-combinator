@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from app.code_mode.safe_workspace import resolve_safe_path
+from app.core.config import settings
+from app.llm.models import UsageReport
 
 
 class WorkspaceWriter:
@@ -70,6 +72,7 @@ class WorkspaceWriter:
                     "verification.json",
                     "provenance.json",
                     "contradictions.json",
+                    "llm-usage.json",
                     "review-ui/",
                 ],
             },
@@ -118,6 +121,10 @@ class WorkspaceWriter:
             result.provenance.to_dict(),
         )
         self._write_json(challenge_root / "contradictions.json", contradictions)
+        self._write_json(
+            challenge_root / "llm-usage.json",
+            _configured_usage_report().to_dict(),
+        )
         self._write_text(
             challenge_root / "overview.md",
             self._ideation_overview(
@@ -181,6 +188,7 @@ class WorkspaceWriter:
                     "verification.json",
                     "provenance.json",
                     "contradictions.json",
+                    "llm-usage.json",
                     "combined-solution/",
                     "review-ui/",
                 ],
@@ -246,6 +254,10 @@ class WorkspaceWriter:
         self._write_json(
             challenge_root / "contradictions.json",
             self._code_contradictions(matrix, recommendations, decisions),
+        )
+        self._write_json(
+            challenge_root / "llm-usage.json",
+            _configured_usage_report().to_dict(),
         )
         self._write_text(
             challenge_root / "overview.md",
@@ -537,3 +549,17 @@ class WorkspaceWriter:
         temporary_path = path.with_suffix(path.suffix + ".tmp")
         temporary_path.write_text(data, encoding="utf-8")
         temporary_path.replace(path)
+
+
+def _configured_usage_report() -> UsageReport:
+    provider = settings.llm_provider.strip().lower()
+    model = (
+        settings.bedrock_model_id or settings.llm_model_id
+        if provider in {"bedrock", "amazon-bedrock"}
+        else settings.llm_model_id or "deterministic-mock"
+    )
+    return UsageReport(
+        provider=provider,
+        model=model,
+        approximate_cost=0.0 if provider == "mock" else None,
+    )

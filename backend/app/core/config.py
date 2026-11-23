@@ -15,10 +15,18 @@ class Settings(BaseSettings):
     workspace_path: Path = PROJECT_ROOT / "workspace"
 
     llm_provider: str = "mock"
+    combinator_ai_mode: str | None = None
+    llm_model_id: str | None = None
+    llm_endpoint_url: str | None = None
+    llm_timeout_seconds: float = 30.0
+    llm_max_retries: int = 0
+    llm_temperature: float = 0.0
+    llm_max_tokens: int = 1024
 
     openai_api_key: str | None = None
 
     aws_region: str | None = None
+    bedrock_model_id: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
 

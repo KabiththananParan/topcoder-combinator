@@ -52,6 +52,7 @@ def test_ideation_workspace_is_deterministic_and_source_safe(tmp_path):
         "contradictions.json",
         "verification.json",
         "provenance.json",
+        "llm-usage.json",
     ):
         assert (workspace / artifact).exists()
     assert (workspace / "submissions" / "SUB_001").is_dir()
@@ -59,6 +60,10 @@ def test_ideation_workspace_is_deterministic_and_source_safe(tmp_path):
     assert json.loads(
         (workspace / "review-context-status.json").read_text()
     )["mode"] == "specification_derived"
+    usage = json.loads((workspace / "llm-usage.json").read_text())
+    assert usage["provider"] == "mock"
+    assert usage["calls"] == 0
+    assert usage["totalTokens"] is None
 
 
 def test_workspace_writer_rejects_path_traversal(tmp_path):

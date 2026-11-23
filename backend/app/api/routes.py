@@ -342,6 +342,7 @@ def get_verification(challenge_id: str):
         "verification": read_artifact("verification.json", {}),
         "provenance": read_artifact("provenance.json", {}),
         "contradictions": read_artifact("contradictions.json", {}),
+        "usage": read_artifact("llm-usage.json", {}),
         "decisions": decisions,
         "candidateStatus": read_artifact("candidate-status.json", {}),
         "baseSelection": read_artifact("base-selection.json", {}),

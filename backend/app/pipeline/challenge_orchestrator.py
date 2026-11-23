@@ -16,6 +16,8 @@ from app.recommendation.evidence_enrichment import RecommendationEvidenceEnriche
 from app.recommendation.recommendation_engine import RecommendationEngine
 from app.decisions.decision_engine import DecisionEngine
 from app.provenance.evidence_registration import EvidenceRegistrationService
+from app.llm.factory import create_provider
+from app.llm.provider import LLMProvider
 
 
 @dataclass(frozen=True)
@@ -32,8 +34,10 @@ class ChallengeOrchestrator:
     def __init__(
         self,
         starter_pack_path: Path | None = None,
+        provider: LLMProvider | None = None,
     ) -> None:
         self.scanner = StarterPackScanner(starter_pack_path)
+        self.provider = provider or create_provider()
         self.context_loader = ChallengeContextLoader()
         self.profiler = SubmissionProfiler()
         self.ideation_pipeline = IdeationPipeline()
